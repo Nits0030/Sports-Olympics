@@ -1,0 +1,1 @@
+SELECT * from noc_regions
