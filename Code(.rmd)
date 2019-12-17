@@ -1,0 +1,593 @@
+---
+title: "Olympics dataset Analysis"
+output: html_notebook
+Author : Nikki Sharma
+---
+
+Introduction
+This is a Exploratory Data Analysis of the Olympics data for 120 years.
+
+#Preparations
+#Load libraries- Loading libraries for general data manipulation, and visualiation
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(grid)
+library(tidyverse)
+library(VIM)
+#library(magrittr)
+library(ggmap)
+library(stringr)
+```
+#Helper functions :: Multiplot function is defined:
+
+```{r}
+# Define multiple plot function
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+
+#Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+# If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+
+#Setting options :: We set options to enhance readibility by making R not pick up the scienific notation for numbers.
+
+```{r}
+options(scipen=999) # Avoid scientific notation
+```
+
+# Load Data
+```{r}
+df <- read.csv("C:/Users/13055/Downloads/120-years-of-olympic-history-athletes-and-results/athlete_events.csv", stringsAsFactors = F)
+regions <- read.csv("C:/Users/13055/Downloads/120-years-of-olympic-history-athletes-and-results/noc_regions.csv", stringsAsFactors = F)
+df <- df %>%  left_join(regions, by = "NOC")
+
+df$notes <- NULL
+
+df$Medals[is.na(df$Medal)] <- 0
+df$Medals[!is.na(df$Medal)] <- 1
+```
+
+
+#Overview: File structure and content :: Let’s take overview of the data using the summary and glimpse tools.
+```{r}
+dim(df)
+```
+```{r}
+summary(df)
+
+```
+```{r}
+glimpse(df)
+```
+
+#Missing values
+```{r}
+sum(is.na(df)) # Total sum of na values
+```
+
+```{r}
+sapply(df, FUN = function(x){sum(is.na(x))}) # NA values per column
+
+```
+```{r}
+sapply(df, FUN = function(x){sum(is.na(x))/nrow(df)*100}) # Percentage of NA values per column
+
+```
+#Range of values
+```{r}
+sapply(df, FUN = function(x){range(x, na.rm = T)}) # NA values per column
+
+```
+#Unique Values
+```{r}
+sapply(df, FUN = function(x){length(unique(x))})
+
+```
+
+#Distribution of sex over the models
+```{r}
+df %>% group_by(Season, Sex) %>% summarise(Count = n()) %>% mutate(Percentage = round(Count*100 / sum(Count))) %>% 
+  ggplot(aes(x=Season, y=Percentage, fill = Sex)) + geom_bar(stat='identity') +
+  #ggplot(aes(x=Season, y=Percentage, fill = Sex)) + geom_bar(stat='identity',position=position_dodge()) +
+  ggtitle("Share of Male and Female atheletes") +
+  #geom_label(label=df$Percentage, position = position_dodge(0.9)) +
+  theme_minimal() 
+```
+
+#Trends of Sex ratio
+```{r}
+p1 <- df %>%
+  ggplot(aes(x = Age)) +
+  geom_density(color = "black", fill = "tomato") +
+  labs(x = "Age", title = "Distribution of Age") +
+  theme_minimal()
+
+p2 <- df %>%
+  ggplot(aes(x=Age, fill=Sex)) +
+  geom_density(alpha=0.4) +
+  labs(x = "Age", title = "Distribution of Age by Sex") +
+  theme_minimal()
+
+layout <- matrix(c(1,2),2,1,byrow=TRUE)
+multiplot(p1, p2, layout=layout)
+```
+
+#Participation over time 
+```{r}
+df %>%
+  group_by(Year, Season) %>%
+  summarise(NumberOfParticipants = n()) %>%
+  ggplot(aes(x = Year, y = NumberOfParticipants, group = Season)) +
+  geom_line(aes(color = Season)) +
+  geom_point(aes(color = Season)) +
+  labs(x = "Year", y = "Number of Participants", title = "Number of participants in the olympics overtime")+
+  theme_minimal()
+```
+
+#Trend in age 
+```{r}
+df %>% group_by(Year, Sex) %>%  summarise(Median_Age = median(Age,na.rm = T)) %>%
+  ggplot(aes(x = Year, y = Median_Age, Group = Sex)) +
+  geom_line(aes(color = Sex)) +
+  geom_point(aes(color = Sex)) + 
+  labs( x = "Year", y = "Medain age of Athletes", title = "Median age of Male and Female athletes over the years")+
+  theme_minimal()
+```
+
+#All sports were not part of Olympics all the time
+```{r}
+df %>% group_by(Sport) %>% summarise(Max = max(Year), Min = min(Year), Range = max(Year)-min(Year)) %>% 
+  ggplot(aes(x = reorder(Sport, Range))) + geom_linerange(aes(ymin=Min,ymax=Max),linetype=2,color="black")+
+  geom_point(aes(y=Min),size=2,color="red")+
+  geom_point(aes(y=Max),size=2,color="blue")+
+  labs( x = "Sport", y = "Year", title = "Range of years when a Sport was part of Olympics")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+#Country participation over the years
+
+```{r}
+df %>%
+  group_by(Year, Season) %>%
+  summarise(NumberOfCountries = length(unique(region))) %>%
+  ggplot(aes(x = Year, y = NumberOfCountries, group = Season)) +
+  geom_line(aes(color = Season)) +
+  geom_point(aes(color = Season)) +
+  labs(x = "Year", y = "Number of countries participated", title = "Number of countries that participated in the Olympics") +
+  theme(legend.position = 'top')
+```
+
+#Probability of winning medals across different countries 
+```{r}
+df %>% group_by(Season, region) %>% summarise(medal_no = sum(Medals), total = n(), prop = medal_no/total) %>%
+  filter(prop > 0.05) %>%
+  ggplot(aes(x = reorder(region, prop), y = prop, group = Season)) +
+  geom_line(aes(color = Season)) + geom_point(aes(color = Season)) +
+  labs( x = "Sport", y = "Year", title = "Probability of winning medal across the countries")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6.5), legend.position = 'top')
+```
+
+#Top  Medal Winners
+```{r}
+p1 <- df %>% filter(Season =="Summer") %>% group_by(region) %>%
+  summarise(Medal_Tally = sum(Medals))%>%
+  arrange(desc(Medal_Tally)) %>%
+  ungroup() %>%
+  mutate(region = reorder(region,Medal_Tally)) %>%
+  top_n(10) %>%
+  ggplot(aes(x = region,y = Medal_Tally)) +
+  geom_bar(stat='identity',colour="white", fill = "yellow") +
+  geom_text(aes(x = region, y = .1, label = paste0("(",round(Medal_Tally,2),")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  theme(plot.title = element_text(size=10),
+        axis.title = element_text(size=10),
+        axis.text = element_text(size=10)) +
+  labs(x = 'Country', y = 'Number of Medals', title = "Summer Medals") + coord_flip() 
+#+theme_bw()
+
+p2 <- df %>% filter(Season =="Winter") %>% group_by(region) %>%
+  summarise(Medal_Tally = sum(Medals))%>%
+  arrange(desc(Medal_Tally)) %>%
+  ungroup() %>%
+  mutate(region = reorder(region,Medal_Tally)) %>%
+  top_n(10) %>%
+  ggplot(aes(x = region,y = Medal_Tally)) +
+  geom_bar(stat='identity',colour="white", fill = "cyan") +
+  geom_text(aes(x = region, y = .1, label = paste0("(",round(Medal_Tally,2),")",sep="")),
+            hjust=0, vjust=.5, size = 4, colour = 'black',
+            fontface = 'bold') +
+  theme(plot.title = element_text(size=10),
+        axis.title = element_text(size=10),
+        axis.text = element_text(size=10)) +
+  labs(x = 'Country', y = 'Number of Medals', title = "Winter Medals") + coord_flip()
+# +theme_bw()
+layout <- matrix(c(1,2),2,1,byrow=TRUE)
+multiplot(p1, p2, layout=layout)
+```
+
+#Medals won along the age 
+```{r}
+p1 <- df %>% filter(!is.na(Age) & Age > 16) %>% group_by(Season, Age) %>% 
+  summarise(medal_no = sum(Medals), total = n(), prop = medal_no/total) %>% 
+  ggplot() +
+  geom_line(mapping= aes(x = Age, y = prop, group = Season,color = Season)) + 
+  geom_point(mapping= aes(x = Age, y = prop, group = Season,color = Season)) +
+  #geom_bar(mapping= aes(x = Age, y = medal_no, group = Season),stat='identity', fill = 'cyan', alpha=0.3) 
+  labs( x = "Age", y = "Sport", title = "Probability of winning medal across the age")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p2 <- df %>%
+  ggplot(aes(x=Age, fill=Season)) +
+  geom_density(alpha=0.4) +
+  labs(x = "Age", title = "Distribution of Age by Sex") +
+  theme_minimal()
+
+layout <- matrix(c(1,2),2,1,byrow=TRUE)
+multiplot(p1, p2, layout=layout)
+```
+
+#Probabilty of winning medal along the years 
+```{r}
+df %>% group_by(Sex, Year) %>% summarise(medal_no = sum(Medals), total = n(), prop = medal_no/total) %>%
+  #filter(prop > 0) %>%
+  ggplot(aes(x = Year, y = prop, group = Sex)) +
+  geom_line(aes(color = Sex)) + geom_point(aes(color = Sex)) +
+  labs( x = "Year", y = "Sport", title = "Probability of winning medal across the years")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = 'top')
+
+```
+
+#Height of athelet over years 
+```{r}
+df %>% ggplot(aes(x=as.factor(Year), y=Height, fill=Sex)) +
+  geom_boxplot(alpha=0.75) +
+  labs( x = "Year", y = "Height (cm)", title = "Height of Athletes over the years")+
+#  xlab("Olympiad Year") + ylab("Height (cm)") +
+  scale_fill_manual(values=c("blue","red")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = 'top')
+```
+
+#Weight of athelets over the years 
+```{r}
+df %>% ggplot(aes(x=as.factor(Year), y=Weight, fill=Sex)) +
+  geom_boxplot(alpha=0.75) +
+  labs( x = "Year", y = "Weight (kg)", title = "Weight of Athletes over the years")+
+#  xlab("Olympiad Year") + ylab("Height (cm)") +
+  scale_fill_manual(values=c("blue","red")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = 'top')
+```
+
+#Heights of athletes across the sports
+```{r}
+df %>% ggplot(aes(x=as.factor(Sport), y=Height, fill=Sex)) +
+  geom_boxplot(alpha=0.75) +
+  labs( x = "Sport", y = "Height (cm)", title = "Height of Athletes across the Sports")+
+#  xlab("Olympiad Year") + ylab("Height (cm)") +
+  scale_fill_manual(values=c("blue","red")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7), legend.position = 'top')
+```
+
+#Weights of athelets across the sports
+```{r}
+df %>% ggplot(aes(x=as.factor(Sport), y=Weight, fill=Sex)) +
+  geom_boxplot(alpha=0.75) +
+  labs( x = "Sport", y = "Weight (kg)", title = "Weight of Athletes across the Sports")+
+#  xlab("Olympiad Year") + ylab("Height (cm)") +
+  scale_fill_manual(values=c("blue","red")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7), legend.position = 'top')
+```
+###############################################################################################################################################
+###################### ############### Modelling - Data preparation #########################################################################
+##############################################################################################################################################
+
+
+```{r}
+df_backup <- df
+#(df[is.na(df$region),] %>% select("Team") %>% unique())
+table(df[is.na(df$region),] %>% select("Team"))
+```
+
+
+```{r}
+df$region[grepl("Singapore", df$Team, ignore.case = T) & is.na(df$region)] <- "Singapore"
+df$region[is.na(df$region)] <- "Misc"
+```
+
+# Add the countries with zero medals in a single region.
+```{r}
+zero_medal_group <- df %>% group_by(region) %>% summarise(medal_no = sum(Medals)) %>%
+  filter(medal_no == 0) %>% select("region") %>% unique()
+
+```
+
+#Add column defining the medal earning probability based on the region, and divide the regions into groups of similar ranging probability for winning medal.
+
+```{r}
+medal_winning_prob <- df %>% group_by(region) %>% 
+  summarise(medal_no = sum(Medals), total = n(), prob = medal_no/total) %>%
+  select("region", "prob")
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob == 0] <- "Group0"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0 & medal_winning_prob$prob <= 0.05] <- "Group1"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0.05 & medal_winning_prob$prob <= 0.1] <- "Group2"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0.1 & medal_winning_prob$prob <= 0.15] <- "Group3"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0.15 & medal_winning_prob$prob <= 0.2] <- "Group4"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0.2 & medal_winning_prob$prob <= 0.25] <- "Group5"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0.25 & medal_winning_prob$prob <= 0.3] <- "Group6"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0.3 & medal_winning_prob$prob <= 0.35] <- "Group7"
+medal_winning_prob$Medal_prob_group[medal_winning_prob$prob>0.35] <- "Group8"
+# Adding groups for medal winning prob
+df <- left_join(df, medal_winning_prob, "region")
+```
+
+#To remove the variables not required for modelling.
+```{r}
+to_remove <- c("Team", "NOC", "Games", "City","prob", "Medal", "region")
+
+for(i in to_remove){
+  df[i] <- NULL}
+```
+
+
+#Checking missing values over the years for Weight and Height variables
+```{r}
+df %>%  group_by(Year, Season) %>%
+  summarise(NumberOfParticipants = n(), missing_weight = sum(is.na(Weight)), missing_weight_prop = missing_weight/NumberOfParticipants) %>%
+  ggplot(aes(x = Year, y = missing_weight_prop, group = Season)) +
+  geom_line(aes(color = Season)) +
+  geom_point(aes(color = Season)) +
+  labs(x = "Year", y = "Number of missing weight", title = "Number of missing weight in the olympics overtime")+
+  theme_minimal()
+```
+
+#Number of missing height in the olympics overtime
+```{r}
+df %>%  group_by(Year, Season) %>%
+  summarise(NumberOfParticipants = n(), missing_height = sum(is.na(Height)), missing_height_prop = missing_height/NumberOfParticipants) %>%
+  ggplot(aes(x = Year, y = missing_height_prop, group = Season)) +
+  geom_line(aes(color = Season)) +
+  geom_point(aes(color = Season)) +
+  labs(x = "Year", y = "Number of missing height", title = "Number of missing height in the olympics overtime")+
+  theme_minimal()
+```
+
+#More than 84% of missing values in Weight and Height were before 1970. To handle this,introduced two variables each for height and weight, as well as Age
+```{r}
+df$Weight_missing <- is.na(df$Weight)
+df$Weight[is.na(df$Weight)] <- 0
+
+df$Height_missing <- is.na(df$Height)
+df$Height[is.na(df$Height)] <- 0
+
+df$Age_missing <- is.na(df$Age)
+df$Age[is.na(df$Age)] <- 0
+
+df$Event <- NULL
+df$Name <- NULL
+df$ID <- NULL
+```
+
+#We add the Sports data based on years when they were part of the Olympics, when they were introduced first time, and whether they are part of Olympics now.
+```{r}
+sports_year_data <- df %>% group_by(Sport) %>% 
+  summarise(Max_year=max(Year), Min_year = min(Year), Years_active = Max_year-Min_year, Active_now = ifelse(Max_year == 2016, T, F)) %>%
+  select("Sport", "Min_year", "Years_active", "Active_now")
+
+df <- left_join(df, sports_year_data, "Sport")
+head(df)
+```
+
+#As the number of Sports are 66, they cannot be directly be part of modelling as categorical variables due to resource constriants. So, we group similar kind of sports together based on their rules, and scoring styles.
+```{r}
+Misc_sports <- c("Aeronautics", "Basque Pelota","Roque","Jeu De Paume","Racquets","Motorboating",
+                 "Croquet","Cricket","Military Ski Patrol","Alpinism","Lacrosse", "Rugby Sevens")
+Racing_sports <- c("Cycling", "Skeleton", "Luge", "Alpine Skiing", "Cross Country Skiing", "Swimming", "Canoeing", "Rowing", 
+                   "Freestyle Skiing", "Short Track Speed Skating", "Bobsleigh", "Sailing", "Speed Skating")
+Team_sports <- c("Polo","Beach Volleyball", "Water Polo", "Rugby", "Tug-Of-War", "Softball", "Baseball", "Volleyball", "Basketball",
+                 "Hockey","Ice Hockey", "Football", "Handball")
+Combat_strength_sports <- c("Taekwondo", "Judo", "Boxing", "Wrestling", "Fencing", "Weightlifting")
+Scoring_sports <- c("Trampolining", "Rhythmic Gymnastics", "Synchronized Swimming", "Art Competitions", "Equestrianism", "Archery",
+                    "Shooting", "Gymnastics", "Diving", "Figure Skating", "Curling", "Nordic Combined", "Ski Jumping", "Snowboarding")
+Atheletics_sports <- c("Athletics", "Triathlon", "Modern Pentathlon", "Biathlon")
+Single_duo_sports <- c("Badminton", "Golf", "Table Tennis", "Tennis" )
+
+
+df$Sport_Class[df$Sport %in% Misc_sports] <- "Misc_sports"
+df$Sport_Class[df$Sport %in% Racing_sports] <- "Racing_sports"
+df$Sport_Class[df$Sport %in% Team_sports] <- "Team_sports"
+df$Sport_Class[df$Sport %in% Combat_strength_sports] <- "Combat_strength_sports"
+df$Sport_Class[df$Sport %in% Scoring_sports] <- "Scoring_sports"
+df$Sport_Class[df$Sport %in% Atheletics_sports] <- "Atheletics_sports"
+df$Sport_Class[df$Sport %in% Single_duo_sports] <- "Single_duo_sports"
+
+df$Sport <- NULL
+```
+
+#convert the 1 or 0 for medal winning into a proper R recommended name.
+```{r}
+df$Medal_winning <- ifelse(df$Medals == 1, "Yes", "No")
+df$Medals <- NULL
+```
+#Converting to Categorical variables
+```{r}
+cat_variables <- c("Sex", "Season", "Medal_prob_group", "Weight_missing", "Height_missing", "Age_missing",
+                   "Active_now","Sport_Class", "Medal_winning")
+
+for(i in cat_variables){
+  df[[i]] <- as.factor(df[[i]])
+}
+```
+
+#Modeling::We use Random Forest Classifier based in H2o package as it runs with limited resource requirement.
+#Loading libraries for modellnig
+
+```{r}
+library(caTools)
+library(party)
+library(MLmetrics)
+library(h2o)
+
+# Initializing h2o
+localH2O <- h2o.init(nthreads = -1)
+```
+
+```{r}
+h2o.init()
+```
+
+#Diving the dataset into train and test
+
+```{r}
+set.seed(123)
+
+smple_plt = sample.split(df$Medal_winning, SplitRatio = .75)
+df_train = subset(df, smple_plt == TRUE)
+df_test  = subset(df, smple_plt == FALSE)
+```
+
+#Converting to h2o format and specificying the independent and target variable
+```{r}
+train.h2o <- as.h2o(df_train)
+
+```
+
+```{r}
+test.h2o <- as.h2o(df_test)
+```
+
+```{r}
+y.dep <- 15
+x.indep <- c(1:14)
+```
+
+
+##################Specifying and running the model with 500 trees, max depth of 4, default classification split of variables ############
+```{r}
+rforest.model <- h2o.randomForest(y=y.dep, x=x.indep, training_frame = train.h2o, ntrees = 500, 
+                                  mtries = -1, max_depth = 6, seed = 123)
+```
+
+#Checking the performance metrics in training and test data
+```{r}
+# Variable Importance
+h2o.varimp(rforest.model)
+```
+
+## Training Data Performance Metrics
+```{r}
+h2o.performance(rforest.model)
+```
+
+# Test Data Performance Metrics
+```{r}
+h2o.performance(rforest.model, newdata = test.h2o)
+```
+
+#Checking prediction on training and test datasets
+```{r}
+# Prediction on Training Data
+predict.rforest.train <- as.data.frame(h2o.predict(rforest.model, train.h2o))
+```
+
+```{r}
+# Prediction on Test Data
+predict.rforest <- as.data.frame(h2o.predict(rforest.model, test.h2o))
+```
+
+################################   Performance Metrics on Training Data  ##################################
+
+```{r}
+
+Train_accuracy = Accuracy(df_train$Medal_winning, predict.rforest.train$predict)
+Train_F1 <- F1_Score(df_train$Medal_winning, predict.rforest.train$predict)
+#Train_AUC <- AUC(df_train$Medal_winning, predict.rforest.train$predict)
+Train_Recall <- Recall(df_train$Medal_winning, predict.rforest.train$predict)
+Train_Precision <- Precision(df_train$Medal_winning, predict.rforest.train$predict)
+Train_Specificity <- Specificity(df_train$Medal_winning, predict.rforest.train$predict)
+
+print(paste0("Train Accuracy is: ", Train_accuracy))
+```
+
+```{r}
+print(paste0("Train F1 Score is: ", Train_F1))
+```
+
+```{r}
+#print(paste0("Train AUC is: ", Train_AUC))
+print(paste0("Train Recall is: ", Train_Recall))
+```
+
+```{r}
+print(paste0("Train Precision is: ", Train_Precision))
+```
+
+```{r}
+print(paste0("Train Specificity is: ", Train_Specificity))
+
+```
+
+###################       Performance Metrics on Test Data    ################################################
+```{r}
+Test_accuracy = Accuracy(df_test$Medal_winning, predict.rforest$predict)
+Test_F1 <- F1_Score(df_test$Medal_winning, predict.rforest$predict)
+#Test_AUC <- AUC(df_test$Medal_winning, predict.rforest$predict)
+Test_Recall <- Recall(df_test$Medal_winning, predict.rforest$predict)
+Test_Precision <- Precision(df_test$Medal_winning, predict.rforest$predict)
+Test_Specificity <- Specificity(df_test$Medal_winning, predict.rforest$predict)
+
+print(paste0("Test Accuracy is: ", Test_accuracy))
+```
+
+
+```{r}
+print(paste0("Test F1 Score is: ", Test_F1))
+
+```
+
+```{r}
+#print(paste0("Test AUC is: ", Test_AUC))
+print(paste0("Test Recall is: ", Test_Recall))
+```
+
+```{r}
+print(paste0("Test Precision is: ", Test_Precision))
+```
+
+```{r}
+print(paste0("Train Specificity is: ", Train_Specificity))
+
+```
+
